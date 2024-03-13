@@ -1,0 +1,121 @@
+---
+title: "report.r"
+output:
+  pdf_document:
+    latex_engine: xelatex
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(readr)
+library(readr)
+data <- read_csv("telecom.csv")
+```
+
+```{r}
+library(ggplot2)
+library(gridExtra)
+plot1 <- ggplot(data, aes(x = Churn, fill = Churn)) +
+  geom_bar() +
+  labs(title = "Churn Counts")
+plot2 <- ggplot(data, aes(x = Contract, fill = Churn)) +
+  geom_bar() +
+  labs(title = "Churn by Contract Type")
+plot3 <- ggplot(data, aes(x = MonthlyCharges, fill = Churn)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Churn by Monthly Charges Density")
+plot4 <- ggplot(data, aes(x = tenure, fill = Churn)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Churn by Tenure Density")
+grid.arrange(plot1, plot2, plot3, plot4, nrow = 2, ncol = 2)
+```
+```{r}
+library(dplyr)
+library(readr)
+library(tidyr)
+library(caret)
+data$TotalCharges <- ifelse(data$TotalCharges == " ", NA, as.numeric(data$TotalCharges))
+data <- na.omit(data)
+data <- data %>%mutate_if(is.character, as.factor)
+set.seed(123)
+trainIndex <- createDataPartition(data$Churn, p = 0.7, list = FALSE)
+trainData <- data[trainIndex, ]
+testData <- data[-trainIndex, ]
+model <- glm(Churn ~ ., data = trainData, family = "binomial")
+predictions <- predict(model, newdata = testData, type = "response")
+predicted_classes <- ifelse(predictions > 0.5, 1, 0)
+ljhgmatrix <- table(testData$Churn, predicted_classes)
+ljhgmatrix
+```
+
+
+```{r}
+set.seed(123)
+sjsl <- train(
+  Churn ~ .,
+  data = trainData,
+  method = "rf",
+  trControl = trainControl(method = "cv", number = 5),
+  tuneLength = 5
+)
+sjsl$results
+bestmodel <- sjsl$bestTune
+bestmodel
+sjslpredictions <- predict(sjsl, newdata = testData)
+sjslmatrix <- table(testData$Churn, sjslpredictions)
+sjslmatrix
+sjslaccuracy <- sum(diag(sjslmatrix)) / sum(sjslmatrix)
+sjslaccuracy
+```
+
+```{r}
+sjslimportance <- varImp(sjsl)
+library(ggplot2)
+library(tidyr)
+
+sjslimportancedf <- as.data.frame(sjslimportance$importance)
+sjslimportancedf$Features <- rownames(sjslimportance$importance)
+sjslimportancedf <- gather(sjslimportancedf, key = "Metric", value = "Value", -Features)
+
+importanceplot <- ggplot(sjslimportancedf, aes(x = reorder(Features, Value), y = Value, fill = Metric)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Random Forest Feature Importance",
+       x = "Features",
+       y = "Importance") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(importanceplot)
+
+```
+
+
+
+```{r}
+library(pROC)
+train_predictions <- predict(model, newdata = trainData, type = "response")
+train_roc <- roc(trainData$Churn, train_predictions)
+test_roc <- roc(testData$Churn, predictions)
+roc_plot <- ggplot() +
+  geom_line(aes(x = train_roc$specificities, y = train_roc$sensitivities, color = "Train"), size = 1) +
+  geom_line(aes(x = test_roc$specificities, y = test_roc$sensitivities, color = "Test"), size = 1) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+  scale_color_manual(values = c("blue", "red")) +
+  labs(x = "Specificity", y = "Sensitivity", color = "Data") +
+  ggtitle("ROC Curve") +
+  theme_minimal()
+print(paste("Train AUC:", auc(train_roc)))
+print(paste("Test AUC:", auc(test_roc)))
+print(roc_plot)
+```
+
+
+
+
